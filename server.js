@@ -106,6 +106,9 @@
 // app.listen(PORT, () => console.log(`Quickets bot running on :${PORT}`));
 
 
+//-------------------------------------------
+// Quickets WhatsApp Bot
+//-------------------------------------------
 const express = require("express");
 const axios = require("axios");
 const dotenv = require("dotenv");
@@ -114,19 +117,26 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
-// TEMP MEMORY STORAGE
-let userState = {};
-
-// SEND SIMPLE TEXT ---------------------------------------
+//-------------------------------------------
+// Helper: Send Normal Text
+//-------------------------------------------
 const sendText = async (to, body) => {
   await axios.post(
     `https://graph.facebook.com/v20.0/${process.env.PHONE_NUMBER_ID}/messages`,
-    { messaging_product: "whatsapp", to, text: { body } },
-    { headers: { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}` } }
+    {
+      messaging_product: "whatsapp",
+      to,
+      text: { body },
+    },
+    {
+      headers: { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}` },
+    }
   );
 };
 
-// SEND BUTTONS -------------------------------------------
+//-------------------------------------------
+// Helper: Send Button Template (max 3 buttons)
+//-------------------------------------------
 const sendButtons = async (to, text, buttons) => {
   await axios.post(
     `https://graph.facebook.com/v20.0/${process.env.PHONE_NUMBER_ID}/messages`,
@@ -137,14 +147,50 @@ const sendButtons = async (to, text, buttons) => {
       interactive: {
         type: "button",
         body: { text },
-        action: { buttons }
-      }
+        action: { buttons },
+      },
     },
     { headers: { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}` } }
   );
 };
 
-// MAIN OPTIONS BUTTONS -----------------------------------
+//-------------------------------------------
+// Helper: Berth Selection LIST (fix for button limit)
+//-------------------------------------------
+const sendBerthList = async (to) => {
+  await axios.post(
+    `https://graph.facebook.com/v20.0/${process.env.PHONE_NUMBER_ID}/messages`,
+    {
+      messaging_product: "whatsapp",
+      to,
+      type: "interactive",
+      interactive: {
+        type: "list",
+        header: { type: "text", text: "Berth Preference" },
+        body: { text: "Choose your preferred berth:" },
+        action: {
+          button: "Select Berth",
+          sections: [
+            {
+              title: "Berth Options",
+              rows: [
+                { id: "berth_window", title: "Window" },
+                { id: "berth_upper", title: "Upper" },
+                { id: "berth_middle", title: "Middle" },
+                { id: "berth_sleeper", title: "Sleeper" },
+              ],
+            },
+          ],
+        },
+      },
+    },
+    { headers: { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}` } }
+  );
+};
+
+//-------------------------------------------
+// Helper: Train/Bus selection buttons
+//-------------------------------------------
 const sendButtonsTrainBus = async (to) => {
   await sendButtons(to, "Welcome to Quickets ⚡\nChoose an option:", [
     { type: "reply", reply: { id: "train_btn", title: "🚆 Train" } },
@@ -152,7 +198,14 @@ const sendButtonsTrainBus = async (to) => {
   ]);
 };
 
-// WEBHOOK VERIFY -----------------------------------------
+//-------------------------------------------
+// USER SESSION STORE
+//-------------------------------------------
+const userState = {}; // { number: { step: "", data:{} } }
+
+//-------------------------------------------
+// GET Webhook (Verification)
+//-------------------------------------------
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -164,101 +217,133 @@ app.get("/webhook", (req, res) => {
   return res.sendStatus(403);
 });
 
-// MAIN WEBHOOK LISTENER ----------------------------------
+//-------------------------------------------
+// POST Webhook (Incoming Messages)
+//-------------------------------------------
 app.post("/webhook", async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
-    const msg = entry?.changes?.[0]?.value?.messages?.[0];
+    const changes = entry?.changes?.[0];
+    const value = changes?.value;
+    const msg = value?.messages?.[0];
+
     if (!msg) return res.sendStatus(200);
 
     const from = msg.from;
 
-    // If user presses button
+    //------------------------------------------------------
+    // Start: User types "Book"
+    //------------------------------------------------------
+    if (msg.type === "text") {
+      const text = msg.text.body.trim().toLowerCase();
+
+      if (text === "book") {
+        userState[from] = { step: "train_bus", data: {} };
+        await sendButtonsTrainBus(from);
+        return res.sendStatus(200);
+      }
+
+      // Handle steps
+      const state = userState[from];
+
+      if (!state) {
+        await sendText(from, 'Welcome to Quickets! Type "Book" to begin.');
+        return res.sendStatus(200);
+      }
+
+      // STORE USER RESPONSES STEP BY STEP
+      switch (state.step) {
+        case "ask_name":
+          state.data.name = text;
+          state.step = "ask_age";
+          await sendText(from, "Enter passenger age:");
+          break;
+
+        case "ask_age":
+          state.data.age = text;
+          state.step = "ask_berth";
+          await sendBerthList(from);
+          break;
+
+        case "ask_from":
+          state.data.from = text;
+          state.step = "ask_to";
+          await sendText(from, "Enter destination station (To):");
+          break;
+
+        case "ask_to":
+          state.data.to = text;
+          state.step = "ask_date";
+          await sendText(from, "Enter journey date (DD-MM-YYYY):");
+          break;
+
+        case "ask_date":
+          state.data.date = text;
+          state.step = "ask_passengers";
+          await sendText(from, "Number of passengers:");
+          break;
+
+        case "ask_passengers":
+          state.data.passengers = text;
+          state.step = "completed";
+
+          await sendText(
+            from,
+            `✅ *Booking Summary*\n\nName: ${state.data.name}\nAge: ${state.data.age}\nBerth: ${state.data.berth}\nFrom: ${state.data.from}\nTo: ${state.data.to}\nDate: ${state.data.date}\nPassengers: ${state.data.passengers}\n\nWe will now search trains...`
+          );
+          break;
+
+        default:
+          await sendText(from, "Type 'Book' to begin booking.");
+      }
+
+      return res.sendStatus(200);
+    }
+
+    //------------------------------------------------------
+    // HANDLE BUTTONS (Train / Bus)
+    //------------------------------------------------------
     if (msg.type === "interactive" && msg.interactive.type === "button_reply") {
       const id = msg.interactive.button_reply.id;
 
-      // TRAIN BUTTON ------------------------------------------------
+      // Train selected
       if (id === "train_btn") {
         userState[from] = { step: "ask_name", data: {} };
-        await sendText(from, "Great! Let's book your train ✅\n\nEnter passenger name:");
+        await sendText(from, "Great! Enter passenger *name*:");
       }
 
-      // BERTH SELECTION BUTTON -------------------------------------
+      // Bus selected
+      if (id === "bus_btn") {
+        await sendText(from, "🚌 Bus booking flow coming soon!");
+      }
+
+      return res.sendStatus(200);
+    }
+
+    //------------------------------------------------------
+    // LIST REPLY (Berth selection)
+    //------------------------------------------------------
+    if (msg.type === "interactive" && msg.interactive.type === "list_reply") {
+      const id = msg.interactive.list_reply.id;
+
       if (id.startsWith("berth_")) {
         userState[from].data.berth = id.replace("berth_", "");
         userState[from].step = "ask_from";
         await sendText(from, "Enter Origin Station (From):");
       }
-      return res.sendStatus(200);
-    }
-
-    // USER TEXT MESSAGE --------------------------------------------
-    if (msg.type === "text") {
-      const text = msg.text.body.trim();
-
-      // START FLOW IF USER TYPES BOOK ------------------------------
-      if (text.toLowerCase() === "book") {
-        await sendButtonsTrainBus(from);
-        return res.sendStatus(200);
-      }
-
-      // IF USER IS IN A TRAIN BOOKING FLOW -------------------------
-      if (userState[from]) {
-        const state = userState[from];
-
-        if (state.step === "ask_name") {
-          state.data.name = text;
-          state.step = "ask_age";
-          await sendText(from, "Enter passenger age:");
-        }
-
-        else if (state.step === "ask_age") {
-          state.data.age = text;
-          state.step = "ask_berth";
-
-          // SEND BERTH OPTIONS AS BUTTONS
-          await sendButtons(from, "Choose berth preference:", [
-            { type: "reply", reply: { id: "berth_window", title: "Window" } },
-            { type: "reply", reply: { id: "berth_upper", title: "Upper" } },
-            { type: "reply", reply: { id: "berth_middle", title: "Middle" } },
-            { type: "reply", reply: { id: "berth_sleeper", title: "Sleeper" } },
-          ]);
-        }
-
-        else if (state.step === "ask_from") {
-          state.data.from = text;
-          state.step = "ask_to";
-          await sendText(from, "Enter Destination Station (To):");
-        }
-
-        else if (state.step === "ask_to") {
-          state.data.to = text;
-          state.step = "ask_date";
-          await sendText(from, "Enter Journey Date (DD-MM-YYYY):");
-        }
-
-        else if (state.step === "ask_date") {
-          state.data.date = text;
-          state.step = "done";
-
-          const d = state.data;
-
-          await sendText(
-            from,
-            `✅ Train Booking Details:\n\nName: ${d.name}\nAge: ${d.age}\nBerth: ${d.berth}\nFrom: ${d.from}\nTo: ${d.to}\nDate: ${d.date}\n\nWe will process your booking shortly ✅`
-          );
-        }
-      } else {
-        await sendText(from, "Type *Book* to begin your booking.");
-      }
     }
 
     res.sendStatus(200);
   } catch (e) {
-    console.error("ERR:", e.response?.data || e);
+    console.error(e.response?.data || e.message);
     res.sendStatus(200);
   }
 });
 
+//-------------------------------------------
+// Start Server
+//-------------------------------------------
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`✅ Quickets bot running on :${PORT}`));
+app.listen(PORT, () =>
+  console.log(`✅ Quickets bot running on port: ${PORT}`)
+);
