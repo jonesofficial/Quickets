@@ -112,372 +112,509 @@ require("dotenv").config();
 const app = express();
 app.use(express.json());
 
-// ------------------------------ WhatsApp helpers ------------------------------
-const WA_URL = (pid) => `https://graph.facebook.com/v20.0/${pid}/messages`;
-const HEADERS = {
-  Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
-  "Content-Type": "application/json",
-};
+// ======================= Helpers ===========================
+const WA_URL = `https://graph.facebook.com/v20.0/${process.env.PHONE_NUMBER_ID}/messages`;
+const AUTH = { Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}` };
 
-// Mask any phone we might echo (we generally avoid echoing numbers anyway)
-const maskPhone = (p) => {
-  if (!p) return "";
-  const s = p.toString();
-  if (s.length < 4) return "XXXX";
-  return `+XX XXXXX ${s.slice(-4)}`;
-};
+async function sendText(to, body) {
+  return axios.post(WA_URL, {
+    messaging_product: "whatsapp",
+    to,
+    text: { body }
+  }, { headers: AUTH });
+}
 
-const sendText = async (to, body) => {
-  return axios.post(
-    WA_URL(process.env.PHONE_NUMBER_ID),
-    { messaging_product: "whatsapp", to, text: { body } },
-    { headers: HEADERS }
-  );
-};
+async function sendButtons(to, bodyText, buttons) {
+  // buttons: [{id:'x', title:'Title'}, ...] max 3
+  const btns = buttons.slice(0, 3).map(b => ({
+    type: "reply",
+    reply: { id: b.id, title: b.title }
+  }));
+  return axios.post(WA_URL, {
+    messaging_product: "whatsapp",
+    to,
+    type: "interactive",
+    interactive: {
+      type: "button",
+      body: { text: bodyText },
+      action: { buttons: btns }
+    }
+  }, { headers: AUTH });
+}
 
-const sendButtons = async (to, text, buttons) => {
-  // buttons: [{id, title}, ...] (max 3)
-  return axios.post(
-    WA_URL(process.env.PHONE_NUMBER_ID),
-    {
-      messaging_product: "whatsapp",
-      to,
-      type: "interactive",
-      interactive: {
-        type: "button",
-        body: { text },
-        action: {
-          buttons: buttons.slice(0, 3).map((b) => ({
-            type: "reply",
-            reply: { id: b.id, title: b.title },
-          })),
-        },
-      },
-    },
-    { headers: HEADERS }
-  );
-};
+async function sendList(to, bodyText, rows, buttonText = "Choose") {
+  // rows: [{id, title, description?}, ...]
+  return axios.post(WA_URL, {
+    messaging_product: "whatsapp",
+    to,
+    type: "interactive",
+    interactive: {
+      type: "list",
+      body: { text: bodyText },
+      action: {
+        button: buttonText,
+        sections: [
+          {
+            title: "Options",
+            rows: rows.map(r => ({
+              id: r.id, title: r.title, description: r.description || ""
+            }))
+          }
+        ]
+      }
+    }
+  }, { headers: AUTH });
+}
 
-const sendList = async (to, headerText, bodyText, footerText, sectionTitle, rows) => {
-  // rows: [{id, title, description?}, ...] (max 10 rows per section)
-  return axios.post(
-    WA_URL(process.env.PHONE_NUMBER_ID),
-    {
-      messaging_product: "whatsapp",
-      to,
-      type: "interactive",
-      interactive: {
-        type: "list",
-        header: { type: "text", text: headerText },
-        body: { text: bodyText },
-        footer: footerText ? { text: footerText } : undefined,
-        action: {
-          button: "Choose",
-          sections: [
-            {
-              title: sectionTitle,
-              rows: rows.slice(0, 10).map((r) => ({
-                id: r.id,
-                title: r.title,
-                description: r.description || undefined,
-              })),
-            },
-          ],
-        },
-      },
-    },
-    { headers: HEADERS }
-  );
-};
+function mask(msisdn) {
+  // auto-mask example: +91 XXXXX 0952
+  if (!msisdn) return "";
+  const d = msisdn.replace(/\D/g, "");
+  if (d.length < 4) return "XXXX";
+  return `+${d.slice(0, 2)} XXXXX ${d.slice(-4)}`;
+}
 
-// ------------------------------ In-memory data ------------------------------
+// =============== In-memory "DB" & Session ===================
 /**
- * userState: Map<waNumber, {
- *   step: string,
- *   booking: {
- *     id?: string,
- *     from?: string,
- *     to?: string,
- *     date?: string,
- *     timePref?: string,
- *     paxCount?: number,
- *     seatType?: string,
- *     passengers?: Array<{name:string, age:number, gender:string}>
- *     status: 'pending'|'processing'|'booked'|'cancelled'
- *   }
- * }>
+ * db.passengers[waId] = [{name, age, gender}, ...]   (max 6)
+ * db.bookings = [{id, waId, type:'BUS'|'TRAIN', from, to, date, timePref, paxCount,
+ *                 seatAc:'AC'|'NON-AC', seatKind:'SLEEPER'|'SEATER',
+ *                 passengers:[{...}], status:'PENDING'|'BOOKED'|'CANCELLED', createdAt }]
  */
-const userState = new Map();
+const db = { passengers: {}, bookings: [] };
 
 /**
- * passengersBook: Map<waNumber, Array<{name, age, gender}>>
- * (persist preferred passengers per user — limit 6)
+ * session[waId] =
+ *   { step, draft: { ... }, mode: 'ADD_PASSENGERS_ONEBYONE'|'BOOK_BUS'|'BOOK_TRAIN'|null }
  */
-const passengersBook = new Map();
+const session = new Map();
 
-/**
- * bookings: Map<waNumber, Array<booking>>
- */
-const bookings = new Map();
-
-const MAX_PASSENGERS = 6;
-
-// ------------------------------ Utilities ------------------------------
-const newBookingId = () => `QK-${Math.floor(10000 + Math.random() * 89999)}`;
-const ensureArrays = (wa) => {
-  if (!bookings.has(wa)) bookings.set(wa, []);
-  if (!passengersBook.has(wa)) passengersBook.set(wa, []);
-};
-
-const resetFlow = (wa) => {
-  userState.set(wa, { step: "menu", booking: { status: "pending", passengers: [] } });
-};
-
-// ------------------------------ Menus & Flows ------------------------------
-const MAIN_MENU_TEXT =
-  "🎉 Welcome to Quickets!\n\nYour personal assistant for fast & reliable travel bookings.\nChoose an option to continue:";
-const MAIN_MENU_BTNS = [
-  { id: "menu_book", title: "✅ Book Tickets" },
-  { id: "menu_track", title: "📦 Track Request" },
-  { id: "menu_my", title: "🧾 My Bookings" },
-];
-
-const SECOND_MENU_BTNS = [
-  { id: "menu_passengers", title: "👥 Passengers" },
-  { id: "menu_help", title: "🆘 Help & Support" },
-  { id: "menu_about", title: "ℹ️ About Quickets" },
-];
-
-const showMainMenu = async (wa) => {
-  await sendButtons(wa, MAIN_MENU_TEXT, MAIN_MENU_BTNS);
-  await sendButtons(wa, "More options:", SECOND_MENU_BTNS);
-};
-
-const BOOK_MODE_TEXT =
-  "Choose booking type:";
-const BOOK_MODE_BTNS = [
-  { id: "book_bus", title: "🚌 Bus" },
-  { id: "book_train", title: "🚆 Train (soon)" },
-];
-
-const TIME_ROWS = [
-  { id: "time_morning", title: "Morning (5–12)" },
-  { id: "time_afternoon", title: "Afternoon (12–5)" },
-  { id: "time_evening", title: "Evening (5–9)" },
-  { id: "time_night", title: "Night (9–5)" },
-];
-
-const SEAT_ROWS = [
-  { id: "seat_SL", title: "SL (Sleeper)" },
-  { id: "seat_3A", title: "3A (AC 3-Tier)" },
-  { id: "seat_2A", title: "2A (AC 2-Tier)" },
-  { id: "seat_1A", title: "1A (AC First)" },
-];
-
-const PAX_ROWS = Array.from({ length: MAX_PASSENGERS }, (_, i) => ({
-  id: `pax_${i + 1}`,
-  title: `${i + 1}`,
-}));
-
-const GENDER_ROWS = [
-  { id: "gender_m", title: "Male" },
-  { id: "gender_f", title: "Female" },
-  { id: "gender_o", title: "Other" },
-];
-
-// ------------------------------ Flow steps ------------------------------
-const startBooking = async (wa) => {
-  resetFlow(wa);
-  const st = userState.get(wa);
-  st.step = "choose_mode";
-  await sendButtons(wa, BOOK_MODE_TEXT, BOOK_MODE_BTNS);
-};
-
-const askFrom = async (wa) => {
-  const st = userState.get(wa);
-  st.step = "ask_from";
-  await sendText(wa, "📍 Enter *From* city (e.g., Chennai)");
-};
-
-const askTo = async (wa) => {
-  const st = userState.get(wa);
-  st.step = "ask_to";
-  await sendText(wa, "🎯 Enter *To* city (e.g., Bangalore)");
-};
-
-const askDate = async (wa) => {
-  const st = userState.get(wa);
-  st.step = "ask_date";
-  await sendText(wa, "🗓️ Enter *Journey Date* (e.g., 2025-11-15)");
-};
-
-const askTimePref = async (wa) => {
-  const st = userState.get(wa);
-  st.step = "ask_time";
-  await sendList(wa, "Time Preference", "Choose your preferred time:", "", "Time", TIME_ROWS);
-};
-
-const askPaxCount = async (wa) => {
-  const st = userState.get(wa);
-  st.step = "ask_pax";
-  await sendList(wa, "Passengers", "How many seats do you need?", "", "Count", PAX_ROWS);
-};
-
-const askSeatType = async (wa) => {
-  const st = userState.get(wa);
-  st.step = "ask_seat";
-  await sendList(wa, "Seat Type", "Choose class/seat type:", "", "Seat", SEAT_ROWS);
-};
-
-const confirmSummary = async (wa) => {
-  const st = userState.get(wa);
-  const b = st.booking;
-  const summary =
-    `Please confirm your request:\n\n` +
-    `From: *${b.from || "-"}*\n` +
-    `To: *${b.to || "-"}*\n` +
-    `Date: *${b.date || "-"}*\n` +
-    `Time: *${b.timePref || "-"}*\n` +
-    `Passengers: *${b.paxCount || "-"}*\n` +
-    `Seat Type: *${b.seatType || "-"}*\n\n` +
-    `Add passengers now (profiles) or confirm?`;
-
-  st.step = "confirm_summary";
-  await sendButtons(wa, summary, [
-    { id: "confirm_submit", title: "✅ Confirm" },
-    { id: "confirm_addpax", title: "👥 Add Passengers" },
-    { id: "confirm_cancel", title: "❌ Cancel" },
-  ]);
-};
-
-const storePending = (wa) => {
-  ensureArrays(wa);
-  const st = userState.get(wa);
-  const b = st.booking;
-  b.id = newBookingId();
-  b.status = "pending";
-  bookings.get(wa).push({ ...b });
-  return b.id;
-};
-
-// ------------------------------ Passengers (profiles, up to 6) ------------------------------
-const showPassengers = async (wa) => {
-  ensureArrays(wa);
-  const list = passengersBook.get(wa);
-  if (!list.length) {
-    await sendButtons(wa, "No saved passengers yet. Add up to 6.", [
-      { id: "pax_add", title: "➕ Add Passenger" },
-      { id: "menu_home", title: "🏠 Main Menu" },
-    ]);
-  } else {
-    const lines = list
-      .map((p, i) => `${i + 1}. ${p.name}, ${p.age}, ${p.gender}`)
-      .join("\n");
-    await sendButtons(wa, `Saved Passengers:\n\n${lines}\n\nManage:`, [
-      { id: "pax_add", title: "➕ Add" },
-      { id: "pax_del", title: "🗑️ Delete" },
-      { id: "menu_home", title: "🏠 Menu" },
-    ]);
+function ensureSession(waId) {
+  if (!session.get(waId)) {
+    session.set(waId, { step: null, mode: null, draft: {} });
   }
-};
+  return session.get(waId);
+}
 
-const addPassenger_Start = async (wa) => {
-  const list = passengersBook.get(wa) || [];
-  if (list.length >= MAX_PASSENGERS) {
-    await sendButtons(wa, `You already have ${MAX_PASSENGERS} passengers saved.`, [
-      { id: "menu_home", title: "🏠 Menu" },
-    ]);
-    return;
-  }
-  userState.set(wa, { step: "pax_name", booking: { status: "pending", passengers: [] } });
-  await sendText(wa, "Enter passenger *name*:");
-};
+function resetFlow(waId) {
+  session.set(waId, { step: null, mode: null, draft: {} });
+}
 
-const addPassenger_AskAge = async (wa) => {
-  const st = userState.get(wa);
-  st.step = "pax_age";
-  await sendText(wa, "Enter passenger *age*:");
-};
+function newBookingId() {
+  const n = Math.floor(Math.random() * 90000) + 10000;
+  return `QK-${n}`;
+}
 
-const addPassenger_AskGender = async (wa) => {
-  const st = userState.get(wa);
-  st.step = "pax_gender";
-  await sendList(wa, "Gender", "Select gender:", "", "Gender", GENDER_ROWS);
-};
-
-const addPassenger_Save = async (wa, p) => {
-  ensureArrays(wa);
-  const list = passengersBook.get(wa);
-  if (list.length >= MAX_PASSENGERS) {
-    await sendButtons(wa, `Limit reached (${MAX_PASSENGERS}).`, [{ id: "menu_home", title: "🏠 Menu" }]);
-    return;
-  }
-  list.push(p);
-  passengersBook.set(wa, list);
-  await sendButtons(wa, `Saved: ${p.name}, ${p.age}, ${p.gender}\nAdd more?`, [
-    { id: "pax_add", title: "➕ Add More" },
-    { id: "menu_home", title: "🏠 Main Menu" },
-  ]);
-};
-
-// ------------------------------ Handlers ------------------------------
-const onAnyGreeting = async (wa) => {
-  resetFlow(wa);
-  await showMainMenu(wa);
-};
-
-const onTrack = async (wa) => {
-  userState.set(wa, { step: "track_ask", booking: { status: "pending", passengers: [] } });
-  await sendText(wa, "Enter your *Booking ID* (e.g., QK-48231):");
-};
-
-const onMyBookings = async (wa) => {
-  ensureArrays(wa);
-  const list = bookings.get(wa);
-  if (!list.length) {
-    await sendButtons(wa, "No bookings found for your number.", [
-      { id: "menu_book", title: "✅ Book Tickets" },
-      { id: "menu_home", title: "🏠 Main Menu" },
-    ]);
-    return;
-  }
-  const lines = list
-    .map(
-      (b) =>
-        `${b.id} — ${b.from} → ${b.to} | ${b.paxCount} seats | ${b.seatType || "-"} | ${b.timePref || "-"} | ${b.date} | ${b.status}`
-    )
-    .join("\n");
-  await sendButtons(wa, `Your bookings:\n\n${lines}`, [{ id: "menu_home", title: "🏠 Main Menu" }]);
-};
-
-const onHelp = async (wa) => {
-  await sendButtons(
-    wa,
-    "Help & Support:\n\n• Support hours: 9am–9pm IST\n• Refund policy: As per operator/IR rules\n\nNeed more?",
+// ================== Menus & Flow ============================
+async function sendMainMenu(to) {
+  return sendList(to,
+    `🎉 Welcome to Quickets!\n\nYour personal assistant for fast & reliable travel bookings.\nChoose an option to continue:`,
     [
-      { id: "help_chat", title: "💬 Chat with Agent" },
-      { id: "menu_home", title: "🏠 Main Menu" },
+      { id: "MENU_BOOK", title: "1) Book Tickets", description: "Bus tickets (Train coming soon)" },
+      { id: "MENU_TRACK", title: "2) Track Request", description: "Check your booking status" },
+      { id: "MENU_MYBK", title: "3) My Bookings", description: "View bookings for your number" },
+      { id: "MENU_HELP", title: "4) Help & Support", description: "Support chat, email, refund policy" },
+      { id: "MENU_ABOUT", title: "5) About Quickets", description: "Brand & service info" },
+      { id: "MENU_PAX", title: "6) Add Passengers", description: "Save frequent passengers (up to 6)" }
+    ],
+    "Open Menu"
+  );
+}
+
+async function startBookMenu(to, waId) {
+  const s = ensureSession(waId);
+  s.mode = null; // just selecting domain
+  return sendButtons(to,
+    "What would you like to book?",
+    [
+      { id: "BOOK_TRAIN", title: "🚆 Train" },
+      { id: "BOOK_BUS", title: "🚌 Bus" },
+      { id: "BOOK_BACK", title: "⬅️ Back" }
     ]
   );
-};
+}
 
-const onAbout = async (wa) => {
-  await sendButtons(
-    wa,
-    "About Quickets:\n\nWe help you book tickets fast with clear, button-based steps.\nNo confusion — just travel made simple.",
-    [{ id: "menu_home", title: "🏠 Main Menu" }]
+// ================== Booking (BUS) ===========================
+async function beginBusBooking(to, waId) {
+  const s = ensureSession(waId);
+  s.mode = "BOOK_BUS";
+  s.step = "BUS_FROM";
+  s.draft = { type: "BUS" };
+  return sendText(to, "From city? (e.g., Hyderabad)");
+}
+
+async function busFlowHandleText(to, waId, text) {
+  const s = ensureSession(waId);
+  switch (s.step) {
+    case "BUS_FROM":
+      s.draft.from = text;
+      s.step = "BUS_TO";
+      return sendText(to, "To city? (e.g., Visakhapatnam)");
+
+    case "BUS_TO":
+      s.draft.to = text;
+      s.step = "BUS_DATE";
+      return sendText(to, "Journey Date? (e.g., 24 Feb 2026 or 2026-02-24)");
+
+    case "BUS_DATE":
+      s.draft.date = text;
+      s.step = "BUS_TIME";
+      // Time preference as list (Any/Morning/Evening/Night)
+      return sendList(to, "Pick a time preference:", [
+        { id: "TIME_ANY", title: "Any" },
+        { id: "TIME_MORNING", title: "Morning (5am–12pm)" },
+        { id: "TIME_EVENING", title: "Evening (5pm–9pm)" },
+        { id: "TIME_NIGHT", title: "Night (9pm–2am)" }
+      ], "Select");
+
+    case "BUS_PAX_MANUAL":
+      // Parse manual passenger list (Name Age Gender per line)
+      // Example lines:
+      // Rahul 28 M
+      // Anika 24 F
+      {
+        const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        const parsed = [];
+        for (const line of lines) {
+          const m = line.match(/^([A-Za-z .'-]+)\s+(\d{1,2})\s+([MFmf])$/);
+          if (!m) continue;
+          parsed.push({ name: m[1], age: Number(m[2]), gender: m[3].toUpperCase() });
+        }
+        if (parsed.length === 0) {
+          return sendText(to,
+            "Couldn’t parse passengers. Use format:\nName Age Gender\nExample:\nRahul 28 M\nAnika 24 F"
+          );
+        }
+        if (parsed.length > 6) {
+          return sendText(to, "Max 6 passengers allowed. Please send up to 6 lines.");
+        }
+        s.draft.passengers = parsed;
+        return showBusSummary(to, waId);
+      }
+
+    case "BUS_PAX_ONEBYONE_NAME":
+      s._tmpPassenger = { name: text };
+      s.step = "BUS_PAX_ONEBYONE_AGE";
+      return sendText(to, "Age?");
+
+    case "BUS_PAX_ONEBYONE_AGE":
+      if (!/^\d{1,2}$/.test(text)) return sendText(to, "Please enter a valid age (number).");
+      s._tmpPassenger.age = Number(text);
+      s.step = "BUS_PAX_ONEBYONE_GENDER";
+      return sendButtons(to, "Gender?", [
+        { id: "PAX_G_M", title: "Male" },
+        { id: "PAX_G_F", title: "Female" }
+      ]);
+
+    default:
+      // Any other text while in BUS flow
+      return sendText(to, "Got it. Please continue using the options shown.");
+  }
+}
+
+async function busFlowHandleButton(to, waId, id) {
+  const s = ensureSession(waId);
+
+  // handle time pref
+  if (s.mode === "BOOK_BUS" && s.step === "BUS_TIME") {
+    const map = {
+      "TIME_ANY": "Any",
+      "TIME_MORNING": "Morning",
+      "TIME_EVENING": "Evening",
+      "TIME_NIGHT": "Night"
+    };
+    if (map[id]) {
+      s.draft.timePref = map[id];
+      s.step = "BUS_PAX_COUNT";
+      // ask pax count (buttons up to 3 → we’ll do 1,2,3 then list for more)
+      return sendButtons(to, "How many passengers?", [
+        { id: "PAX_1", title: "1" },
+        { id: "PAX_2", title: "2" },
+        { id: "PAX_3", title: "3" }
+      ]);
+    }
+  }
+
+  // passenger count (1–3 via buttons, else list)
+  if (s.mode === "BOOK_BUS" && s.step === "BUS_PAX_COUNT") {
+    if (id.startsWith("PAX_")) {
+      const c = Number(id.split("_")[1]);
+      s.draft.paxCount = c;
+      s.step = "BUS_SEAT_AC";
+      return sendButtons(to, "AC preference?", [
+        { id: "AC", title: "AC" },
+        { id: "NONAC", title: "Non-AC" }
+      ]);
+    }
+  }
+
+  // AC vs Non-AC
+  if (s.mode === "BOOK_BUS" && s.step === "BUS_SEAT_AC") {
+    if (id === "AC" || id === "NONAC") {
+      s.draft.seatAc = id === "AC" ? "AC" : "NON-AC";
+      s.step = "BUS_SEAT_KIND";
+      return sendButtons(to, "Seat type?", [
+        { id: "SLEEPER", title: "Sleeper" },
+        { id: "SEATER", title: "Seater" }
+      ]);
+    }
+  }
+
+  // Sleeper/Seater
+  if (s.mode === "BOOK_BUS" && s.step === "BUS_SEAT_KIND") {
+    if (id === "SLEEPER" || id === "SEATER") {
+      s.draft.seatKind = id;
+      s.step = "BUS_PAX_MODE";
+      return sendButtons(to,
+        "How would you like to enter passenger details?",
+        [
+          { id: "PAX_MANUAL", title: "Manual (fast 1 msg)" },
+          { id: "PAX_ONEBYONE", title: "One-by-one (easy)" }
+        ]
+      );
+    }
+  }
+
+  // Passenger entry mode
+  if (s.mode === "BOOK_BUS" && s.step === "BUS_PAX_MODE") {
+    if (id === "PAX_MANUAL") {
+      s.step = "BUS_PAX_MANUAL";
+      return sendText(to,
+        "Send passengers in this format (one per line):\n\nName Age Gender\nExample:\nRahul 28 M\nAnika 24 F\n\n(Max 6)"
+      );
+    }
+    if (id === "PAX_ONEBYONE") {
+      s.draft.passengers = [];
+      s.step = "BUS_PAX_ONEBYONE_NAME";
+      return sendText(to, `Passenger 1 name?`);
+    }
+  }
+
+  // One-by-one gender pick
+  if (s.mode === "BOOK_BUS" && s.step === "BUS_PAX_ONEBYONE_GENDER") {
+    if (id === "PAX_G_M" || id === "PAX_G_F") {
+      s._tmpPassenger.gender = (id === "PAX_G_M") ? "M" : "F";
+      s.draft.passengers.push(s._tmpPassenger);
+      s._tmpPassenger = null;
+
+      if (s.draft.passengers.length < (s.draft.paxCount || 1)) {
+        s.step = "BUS_PAX_ONEBYONE_NAME";
+        return sendText(to, `Passenger ${s.draft.passengers.length + 1} name?`);
+      } else {
+        // collected all
+        return showBusSummary(to, waId);
+      }
+    }
+  }
+
+  // Summary confirm
+  if (s.mode === "BOOK_BUS" && s.step === "BUS_SUMMARY") {
+    if (id === "CONFIRM_BOOK") {
+      const booking = {
+        id: newBookingId(),
+        waId,
+        type: "BUS",
+        ...s.draft,
+        status: "PENDING",
+        createdAt: new Date().toISOString()
+      };
+      db.bookings.push(booking);
+      resetFlow(waId);
+      return sendText(to,
+        `✅ Booking created as *PENDING*.\nID: ${booking.id}\nWe’ll process and update status soon.\n\nUse “Track Request” to check status.`
+      );
+    }
+    if (id === "EDIT_BOOK") {
+      s.step = "BUS_FROM";
+      return sendText(to, "Okay, let’s edit. From city?");
+    }
+    if (id === "CANCEL_BOOK") {
+      resetFlow(waId);
+      return sendMainMenu(to);
+    }
+  }
+
+  return sendText(to, "Please use the options shown.");
+}
+
+async function showBusSummary(to, waId) {
+  const s = ensureSession(waId);
+  s.step = "BUS_SUMMARY";
+  const d = s.draft;
+  const paxLines = (d.passengers || []).map(
+    (p, i) => `${i + 1}. ${p.name} ${p.age} ${p.gender}`
+  ).join("\n") || "(not provided)";
+
+  const summary =
+    `Please review your details:\n\n` +
+    `From: ${d.from}\n` +
+    `To: ${d.to}\n` +
+    `Date: ${d.date}\n` +
+    `Time: ${d.timePref}\n` +
+    `Passengers: ${d.paxCount || (d.passengers ? d.passengers.length : 0)}\n` +
+    `Seat: ${d.seatAc} / ${d.seatKind}\n\n` +
+    `Passenger Details:\n${paxLines}\n\n` +
+    `Confirm to create a PENDING booking.`;
+
+  return sendButtons(to, summary, [
+    { id: "CONFIRM_BOOK", title: "✅ Confirm" },
+    { id: "EDIT_BOOK", title: "✏️ Edit" },
+    { id: "CANCEL_BOOK", title: "❌ Cancel" }
+  ]);
+}
+
+// ================== Passengers Vault ========================
+async function startAddPassengers(to, waId) {
+  const s = ensureSession(waId);
+  s.mode = "ADD_PASSENGERS";
+  s.step = "PAX_ADD_MODE";
+  return sendButtons(to, "Add passengers (max 6 saved). Choose a method:", [
+    { id: "PAX_ADD_MANUAL", title: "Manual (fast)" },
+    { id: "PAX_ADD_ONEBYONE", title: "One-by-one" },
+    { id: "PAX_ADD_CANCEL", title: "Cancel" }
+  ]);
+}
+
+async function paxFlowHandleText(to, waId, text) {
+  const s = ensureSession(waId);
+  const arr = db.passengers[waId] || [];
+
+  switch (s.step) {
+    case "PAX_ADD_MANUAL_TEXT": {
+      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const parsed = [];
+      for (const line of lines) {
+        const m = line.match(/^([A-Za-z .'-]+)\s+(\d{1,2})\s+([MFmf])$/);
+        if (!m) continue;
+        parsed.push({ name: m[1], age: Number(m[2]), gender: m[3].toUpperCase() });
+      }
+      if (parsed.length === 0) {
+        return sendText(to,
+          "Couldn’t parse. Use format:\nName Age Gender\nExample:\nRahul 28 M\nAnika 24 F"
+        );
+      }
+      const room = Math.max(0, 6 - arr.length);
+      const toAdd = parsed.slice(0, room);
+      db.passengers[waId] = [...arr, ...toAdd];
+      resetFlow(waId);
+      return sendText(to,
+        `✅ Saved ${toAdd.length} passengers. Total stored: ${db.passengers[waId].length}/6.`
+      );
+    }
+
+    case "PAX_ADD_ONE_NAME":
+      s._tmpPassenger = { name: text };
+      s.step = "PAX_ADD_ONE_AGE";
+      return sendText(to, "Age?");
+    case "PAX_ADD_ONE_AGE":
+      if (!/^\d{1,2}$/.test(text)) return sendText(to, "Enter a valid age (number).");
+      s._tmpPassenger.age = Number(text);
+      s.step = "PAX_ADD_ONE_GENDER";
+      return sendButtons(to, "Gender?", [
+        { id: "PAX_V_G_M", title: "Male" },
+        { id: "PAX_V_G_F", title: "Female" }
+      ]);
+  }
+  return sendText(to, "Please continue using the options shown.");
+}
+
+async function paxFlowHandleButton(to, waId, id) {
+  const s = ensureSession(waId);
+  const arr = db.passengers[waId] || [];
+
+  if (s.step === "PAX_ADD_MODE") {
+    if (id === "PAX_ADD_CANCEL") {
+      resetFlow(waId);
+      return sendMainMenu(to);
+    }
+    if (id === "PAX_ADD_MANUAL") {
+      s.step = "PAX_ADD_MANUAL_TEXT";
+      return sendText(to,
+        "Send passengers in this format (one per line):\n\nName Age Gender\nExample:\nRahul 28 M\nAnika 24 F\n\n(Max total 6 saved)"
+      );
+    }
+    if (id === "PAX_ADD_ONEBYONE") {
+      if ((arr.length || 0) >= 6) {
+        resetFlow(waId);
+        return sendText(to, "You already have 6 saved passengers.");
+      }
+      s.step = "PAX_ADD_ONE_NAME";
+      return sendText(to, "Passenger name?");
+    }
+  }
+
+  if (s.step === "PAX_ADD_ONE_GENDER") {
+    if (id === "PAX_V_G_M" || id === "PAX_V_G_F") {
+      s._tmpPassenger.gender = (id === "PAX_V_G_M") ? "M" : "F";
+      db.passengers[waId] = [...(db.passengers[waId] || []), s._tmpPassenger].slice(0, 6);
+      s._tmpPassenger = null;
+
+      if (db.passengers[waId].length >= 6) {
+        resetFlow(waId);
+        return sendText(to, "✅ Saved. You now have 6/6 passengers stored.");
+      } else {
+        // ask to add another
+        s.step = "PAX_ADD_MODE";
+        return sendButtons(to, `✅ Saved. You now have ${db.passengers[waId].length}/6.\nAdd another?`, [
+          { id: "PAX_ADD_ONEBYONE", title: "Add another" },
+          { id: "PAX_ADD_MANUAL", title: "Manual" },
+          { id: "PAX_ADD_CANCEL", title: "Done" }
+        ]);
+      }
+    }
+  }
+
+  return sendText(to, "Please use the options provided.");
+}
+
+// ================== Other Menus Handlers ====================
+async function showMyBookings(to, waId) {
+  const items = db.bookings.filter(b => b.waId === waId);
+  if (!items.length) return sendText(to, "You have no bookings yet.");
+  const lines = items.map(b => {
+    const core = `${b.date}: ${b.from} → ${b.to} | ${b.paxCount || (b.passengers?.length || 0)} seats | ${b.seatAc}/${b.seatKind} | ${b.timePref}`;
+    return `${b.id} — ${core} — ${b.status}`;
+  }).join("\n");
+  return sendText(to, `📒 Your bookings:\n${lines}`);
+}
+
+async function startTrack(to, waId) {
+  const s = ensureSession(waId);
+  s.mode = "TRACK";
+  s.step = "TRACK_ID";
+  return sendText(to, "Enter your Booking ID (e.g., QK-12345)");
+}
+
+async function handleTrackText(to, waId, text) {
+  const id = text.trim().toUpperCase();
+  const hit = db.bookings.find(b => b.id === id && b.waId === waId);
+  if (!hit) return sendText(to, "Not found. Check the ID and try again.");
+  return sendText(to, `Status for ${hit.id}: ${hit.status}`);
+}
+
+async function showHelp(to) {
+  return sendText(to,
+    "Help & Support\n\n" +
+    "• Chat: This WhatsApp\n" +
+    "• Email: support@quickets.example\n" +
+    "• Hours: 9am–9pm IST\n" +
+    "• Refund: As per operator policy"
   );
-};
+}
 
-// ------------------------------ Webhook: VERIFY ------------------------------
+async function showAbout(to) {
+  return sendText(to,
+    "About Quickets\n\n" +
+    "We help you book tickets fast with minimal hassle.\n" +
+    "Reliable, simple, and easy — powered by automation."
+  );
+}
+
+// ================== WhatsApp Webhook ========================
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
   const challenge = req.query["hub.challenge"];
-
-  console.log("Mode:", mode);
-  console.log("Token from Meta:", token);
-  console.log("Our VERIFY_TOKEN:", process.env.VERIFY_TOKEN);
 
   if (mode === "subscribe" && token === process.env.VERIFY_TOKEN) {
     return res.status(200).send(challenge);
@@ -485,7 +622,6 @@ app.get("/webhook", (req, res) => {
   return res.sendStatus(403);
 });
 
-// ------------------------------ Webhook: MESSAGES ------------------------------
 app.post("/webhook", async (req, res) => {
   try {
     const entry = req.body.entry?.[0];
@@ -494,235 +630,118 @@ app.post("/webhook", async (req, res) => {
     const msg = value?.messages?.[0];
     if (!msg) return res.sendStatus(200);
 
-    const wa = msg.from; // user's WA number
-    ensureArrays(wa);
-    if (!userState.has(wa)) resetFlow(wa);
-    const st = userState.get(wa);
+    const from = msg.from; // E.164 string without +
+    const waId = from;     // we use raw as key (server side only)
 
-    // TEXT messages
+    // Route incoming message types
     if (msg.type === "text") {
-      const text = (msg.text.body || "").trim();
+      const text = msg.text.body.trim().toLowerCase();
 
-      // Global shortcuts to open menu
-      const low = text.toLowerCase();
-      if (["hi", "hello", "start", "menu", "book"].includes(low)) {
-        if (low === "book") {
-          await startBooking(wa);
-        } else {
-          await onAnyGreeting(wa);
-        }
+      // If in a flow, route to that flow first
+      const s = ensureSession(waId);
+
+      if (s.mode === "BOOK_BUS") {
+        await busFlowHandleText(from, waId, msg.text.body.trim());
+        return res.sendStatus(200);
+      }
+      if (s.mode === "ADD_PASSENGERS") {
+        await paxFlowHandleText(from, waId, msg.text.body.trim());
+        return res.sendStatus(200);
+      }
+      if (s.mode === "TRACK" && s.step === "TRACK_ID") {
+        await handleTrackText(from, waId, msg.text.body.trim());
         return res.sendStatus(200);
       }
 
-      // Step-by-step free-form inputs
-      if (st.step === "ask_from") {
-        st.booking.from = text;
-        return (await askTo(wa)), res.sendStatus(200);
-      }
-      if (st.step === "ask_to") {
-        st.booking.to = text;
-        return (await askDate(wa)), res.sendStatus(200);
-      }
-      if (st.step === "ask_date") {
-        st.booking.date = text;
-        return (await askTimePref(wa)), res.sendStatus(200);
-      }
-
-      // Passenger profile creation
-      if (st.step === "pax_name") {
-        st.tmpPassenger = { name: text };
-        return (await addPassenger_AskAge(wa)), res.sendStatus(200);
-      }
-      if (st.step === "pax_age") {
-        const age = parseInt(text, 10);
-        if (isNaN(age) || age <= 0 || age > 120) {
-          await sendText(wa, "Please enter a valid age (number).");
-          return res.sendStatus(200);
-        }
-        st.tmpPassenger.age = age;
-        return (await addPassenger_AskGender(wa)), res.sendStatus(200);
-      }
-
-      // Track booking
-      if (st.step === "track_ask") {
-        const id = text.toUpperCase().trim();
-        const list = bookings.get(wa);
-        const found = list.find((b) => b.id === id);
-        if (!found) {
-          await sendButtons(wa, "Booking not found.", [
-            { id: "menu_my", title: "🧾 My Bookings" },
-            { id: "menu_home", title: "🏠 Menu" },
-          ]);
-          return res.sendStatus(200);
-        }
-        await sendButtons(
-          wa,
-          `Status for ${found.id}:\n${found.from} → ${found.to} on ${found.date}\nStatus: *${found.status.toUpperCase()}*`,
-          [{ id: "menu_home", title: "🏠 Main Menu" }]
-        );
-        resetFlow(wa);
-        return res.sendStatus(200);
-      }
-
-      // Default
-      await showMainMenu(wa);
+      // Any general text → show Main Menu (brand)
+      await sendMainMenu(from);
       return res.sendStatus(200);
     }
 
-    // INTERACTIVE: button replies & list selections
     if (msg.type === "interactive") {
+      // Button reply
       if (msg.interactive.type === "button_reply") {
         const id = msg.interactive.button_reply.id;
+        const s = ensureSession(waId);
 
-        // Main menu choices
-        if (id === "menu_book") return (await startBooking(wa)), res.sendStatus(200);
-        if (id === "menu_track") return (await onTrack(wa)), res.sendStatus(200);
-        if (id === "menu_my") return (await onMyBookings(wa)), res.sendStatus(200);
-        if (id === "menu_passengers") return (await showPassengers(wa)), res.sendStatus(200);
-        if (id === "menu_help") return (await onHelp(wa)), res.sendStatus(200);
-        if (id === "menu_about") return (await onAbout(wa)), res.sendStatus(200);
-        if (id === "menu_home") return (await showMainMenu(wa)), res.sendStatus(200);
-
-        // Booking mode
-        if (id === "book_bus") {
-          st.step = "book_bus";
-          st.booking = { status: "pending", passengers: [] };
-          return (await askFrom(wa)), res.sendStatus(200);
+        // Global book menu navigation
+        if (id === "BOOK_BACK") {
+          resetFlow(waId);
+          await sendMainMenu(from);
+          return res.sendStatus(200);
         }
-        if (id === "book_train") {
-          await sendButtons(wa, "Train flow coming soon. Use Bus for now.", [
-            { id: "book_bus", title: "🚌 Bus" },
-            { id: "menu_home", title: "🏠 Menu" },
-          ]);
+        if (id === "BOOK_BUS") {
+          await beginBusBooking(from, waId);
+          return res.sendStatus(200);
+        }
+        if (id === "BOOK_TRAIN") {
+          // Train coming soon
+          await sendText(from, "🚆 Train booking coming soon. Please use Bus for now.");
           return res.sendStatus(200);
         }
 
-        // Confirmation buttons
-        if (id === "confirm_submit") {
-          const newId = storePending(wa);
-          await sendButtons(
-            wa,
-            `✅ Request submitted!\n\nBooking ID: *${newId}*\nStatus: *PENDING*\n\nWe’ll process and update you here.`,
-            [{ id: "menu_home", title: "🏠 Main Menu" }]
-          );
-          resetFlow(wa);
-          return res.sendStatus(200);
-        }
-        if (id === "confirm_addpax") {
-          await showPassengers(wa);
-          return res.sendStatus(200);
-        }
-        if (id === "confirm_cancel") {
-          resetFlow(wa);
-          await sendButtons(wa, "Cancelled. What next?", [
-            { id: "menu_book", title: "✅ Book Tickets" },
-            { id: "menu_home", title: "🏠 Main Menu" },
-          ]);
+        // If inside Bus booking flow
+        if (ensureSession(waId).mode === "BOOK_BUS") {
+          await busFlowHandleButton(from, waId, id);
           return res.sendStatus(200);
         }
 
-        // Passengers management
-        if (id === "pax_add") {
-          await addPassenger_Start(wa);
-          return res.sendStatus(200);
-        }
-        if (id === "pax_del") {
-          const list = passengersBook.get(wa);
-          if (!list.length) {
-            await sendButtons(wa, "No passengers to delete.", [{ id: "menu_home", title: "🏠 Menu" }]);
-          } else {
-            // show list rows to delete
-            const rows = list.map((p, i) => ({ id: `pax_del_${i}`, title: `${i + 1}. ${p.name}` }));
-            await sendList(wa, "Delete Passenger", "Choose one to delete:", "", "Saved", rows);
-          }
+        // If inside passenger vault flow
+        if (ensureSession(waId).mode === "ADD_PASSENGERS") {
+          await paxFlowHandleButton(from, waId, id);
           return res.sendStatus(200);
         }
 
-        // Help
-        if (id === "help_chat") {
-          await sendButtons(wa, "An agent will contact you here soon. Anything else?", [
-            { id: "menu_home", title: "🏠 Main Menu" },
-          ]);
-          return res.sendStatus(200);
-        }
-
-        // Fallback to menu
-        await showMainMenu(wa);
+        // Fallback
+        await sendText(from, "Please use the options shown.");
         return res.sendStatus(200);
       }
 
+      // List reply
       if (msg.interactive.type === "list_reply") {
-        const sel = msg.interactive.list_reply;
-        const id = sel.id;
+        const id = msg.interactive.list_reply.id;
+        switch (id) {
+          case "MENU_BOOK":
+            await startBookMenu(from, waId);
+            break;
 
-        // Time preference
-        if (id.startsWith("time_")) {
-          const map = {
-            time_morning: "Morning",
-            time_afternoon: "Afternoon",
-            time_evening: "Evening",
-            time_night: "Night",
-          };
-          userState.get(wa).booking.timePref = map[id] || sel.title;
-          await askPaxCount(wa);
-          return res.sendStatus(200);
+          case "MENU_TRACK":
+            await startTrack(from, waId);
+            break;
+
+          case "MENU_MYBK":
+            await showMyBookings(from, waId);
+            break;
+
+          case "MENU_HELP":
+            await showHelp(from);
+            break;
+
+          case "MENU_ABOUT":
+            await showAbout(from);
+            break;
+
+          case "MENU_PAX":
+            await startAddPassengers(from, waId);
+            break;
+
+          default:
+            await sendText(from, "Please choose one of the available options.");
         }
-
-        // Passenger count
-        if (id.startsWith("pax_")) {
-          const n = parseInt(id.split("_")[1], 10);
-          userState.get(wa).booking.paxCount = n;
-          await askSeatType(wa);
-          return res.sendStatus(200);
-        }
-
-        // Seat type
-        if (id.startsWith("seat_")) {
-          const stype = id.replace("seat_", "").toUpperCase();
-          userState.get(wa).booking.seatType = stype;
-          await confirmSummary(wa);
-          return res.sendStatus(200);
-        }
-
-        // Passenger gender select (for profile creation)
-        if (id.startsWith("gender_")) {
-          const st = userState.get(wa);
-          const gMap = { gender_m: "Male", gender_f: "Female", gender_o: "Other" };
-          st.tmpPassenger.gender = gMap[id] || "Other";
-          await addPassenger_Save(wa, st.tmpPassenger);
-          resetFlow(wa);
-          return res.sendStatus(200);
-        }
-
-        // Delete passenger
-        if (id.startsWith("pax_del_")) {
-          const idx = parseInt(id.split("_")[2], 10);
-          const list = passengersBook.get(wa);
-          if (!isNaN(idx) && list[idx]) {
-            const gone = list.splice(idx, 1)[0];
-            passengersBook.set(wa, list);
-            await sendButtons(wa, `Deleted: ${gone.name}.`, [
-              { id: "menu_passengers", title: "👥 Passengers" },
-              { id: "menu_home", title: "🏠 Menu" },
-            ]);
-            resetFlow(wa);
-            return res.sendStatus(200);
-          }
-        }
-
-        // Default
-        await showMainMenu(wa);
         return res.sendStatus(200);
       }
     }
 
+    // If we get here, unhandled type (image/audio/etc)
+    await sendMainMenu(from);
     res.sendStatus(200);
+
   } catch (e) {
-    console.error("ERR:", e.response?.data || e.message);
+    console.error(e.response?.data || e.message);
     res.sendStatus(200);
   }
 });
 
-// ------------------------------ Start ------------------------------
+// ================== Start ===========================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Quickets bot running on :${PORT}`));
