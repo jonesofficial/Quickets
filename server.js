@@ -283,7 +283,7 @@ const GENDER_ROWS = [
   { id: "gender_m", title: "Male" },
   { id: "gender_f", title: "Female" },
   { id: "gender_o", title: "Other" },
-]);
+];
 
 // ------------------------------ Flow steps ------------------------------
 const startBooking = async (wa) => {
