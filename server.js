@@ -238,7 +238,7 @@ const isValidDate = (s) => {
   const tryA = Date.parse(s);
   if (!isNaN(tryA)) return true;
   // Basic yyyy-mm-dd
-  return /^\d{4}-\d{2}-\d{2}$/.test(s);
+  return /^\d{2}-\d{2}-\d{4}$/.test(s);
 };
 
 const normalizeDate = (s) => {
@@ -247,7 +247,7 @@ const normalizeDate = (s) => {
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+  return `${dd}-${mm}-${yyyy}`;
 };
 
 const parsePassengerLine = (line) => {
@@ -334,16 +334,15 @@ const askSeatType = (to) =>
 
 const askPassengerMode = (to) =>
   sendButtons(to, "Passenger details input:", [
-    { id: "PAX_BULK", title: "Fast Form" },
-    { id: "PAX_ONEBYONE", title: "One by One" },
+    { id: "PAX_BULK", title: "Fill at Once" },
+    { id: "PAX_ONEBYONE", title: "Fill one by one" },
   ]);
 
 const askBulkHint = (to, remaining) =>
   sendText(
     to,
     `Please paste *${remaining}* passenger(s) like:\n\n` +
-      `• *name age gender*\n` +
-      `• *name age gender*\n\n` +
+      `• *Name<SPACE>Age<SPACE>Gender*\n` +
       `Example:\nVikram 28 M\nSita 26 F\n`
   );
 
