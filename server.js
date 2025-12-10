@@ -286,6 +286,9 @@ app.get("/webhook", (req, res) => {
 
 // --------- Webhook receiver ----------
 app.post("/webhook", async (req, res) => {
+    console.log("🔥 Webhook triggered:");
+    console.log(JSON.stringify(req.body, null, 2));
+
   try {
     const entry = req.body.entry?.[0];
     const changes = entry?.changes?.[0];
