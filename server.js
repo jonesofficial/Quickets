@@ -878,22 +878,143 @@ const bookPicker = (to) =>
   ]);
 
 // ---------- Validators (improved) ----------
-const isValidDate = (s) => {
-  if (!s) return false;
-  const tryA = Date.parse(s);
-  if (!isNaN(tryA)) return true;
-  return /^\d{4}-\d{2}-\d{2}$/.test(s) || /^\d{2}-\d{2}-\d{4}$/.test(s);
+
+// ---------- Natural-language date parsing & validators ----------
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEK_DAYS = ["sunday","monday","tuesday","wednesday","thursday","friday","saturday"];
+
+function pad(n){ return String(n).padStart(2, "0"); }
+
+function formatDDMMYYYY(d){
+  return `${pad(d.getDate())}-${pad(d.getMonth()+1)}-${d.getFullYear()}`;
+}
+
+function getNextWeekday(base, weekdayIndex, mode="next"){
+  const baseDay = base.getDay();
+  let diff = (weekdayIndex - baseDay + 7) % 7;
+  if (diff === 0 && mode === "next") diff = 7;
+  return new Date(base.getFullYear(), base.getMonth(), base.getDate() + diff);
+}
+
+function parseNaturalPhrase(raw, now = new Date()){
+  const s = String(raw || "").trim().toLowerCase();
+  if (!s) return null;
+
+  let timeHint = null;
+  if (s.includes("night")) timeHint = "night";
+  else if (s.includes("evening")) timeHint = "evening";
+  else if (s.includes("afternoon")) timeHint = "afternoon";
+  else if (s.includes("morning")) timeHint = "morning";
+
+  if (s === "tomorrow") {
+    return { date: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1), timeHint };
+  }
+  if (s === "day after tomorrow" || s === "day after") {
+    return { date: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2), timeHint };
+  }
+
+  if (s.includes("this weekend")) {
+    const sat = 6;
+    return { date: getNextWeekday(now, sat, "coming"), timeHint };
+  }
+
+  const m = s.match(/\b(next|coming)\s+([a-z]+)/);
+  if (m) {
+    const mode = m[1];
+    const weekday = m[2];
+    const idx = WEEK_DAYS.indexOf(weekday);
+    if (idx >= 0) {
+      return { date: getNextWeekday(now, idx, mode === "next" ? "next" : "coming"), timeHint };
+    }
+  }
+
+  return null;
+}
+
+function parseDateInput(input){
+  if (!input) return { ok: false };
+
+  const nat = parseNaturalPhrase(input);
+  if (nat && nat.date instanceof Date && !isNaN(nat.date)) {
+    return {
+      ok: true,
+      dateObj: nat.date,
+      dateStr: formatDDMMYYYY(nat.date),
+      timeHint: nat.timeHint
+    };
+  }
+
+  const d = new Date(input);
+  if (!isNaN(d)) {
+    return {
+      ok: true,
+      dateObj: d,
+      dateStr: formatDDMMYYYY(d),
+      timeHint: null
+    };
+  }
+
+  return { ok: false };
+}
+
+const isValidDate = (input) => {
+  const res = parseDateInput(input);
+  if (!res.ok) return false;
+
+  const d = new Date(res.dateObj.getFullYear(), res.dateObj.getMonth(), res.dateObj.getDate());
+  const today = new Date();
+  today.setHours(0,0,0,0);
+
+  if (d < today) return false;
+
+  const limit = new Date();
+  limit.setDate(limit.getDate() + 120);
+  limit.setHours(0,0,0,0);
+  if (d > limit) return false;
+
+  const year = d.getFullYear();
+  if (year < 2024 || year > 2035) return false;
+
+  return true;
 };
 
-const normalizeDate = (s) => {
-  if (!s) return s;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  const d = new Date(s);
-  if (isNaN(d)) return s;
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
+const normalizeDate = (input) => {
+  const res = parseDateInput(input);
+  return res.ok ? res.dateStr : input;
+};
+
+
+const normalizeDate = (input) => {
+  const d = new Date(input);
+  if (isNaN(d)) return input;
+
   const dd = String(d.getDate()).padStart(2, "0");
-  return `${dd}-${mm}-${yyyy}`;
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+
+  return `${dd}-${mm}-${yyyy}`; // final clean format
+};
+
+
+// ---------- City validator (add here) ----------
+const isValidCity = (s) => {
+  if (!s) return false;
+  const cleaned = String(s).trim();
+
+  // must be at least 3 visible letters (ignore spaces)
+  if (cleaned.replace(/\s+/g, "").length < 3) return false;
+
+  // only letters and spaces allowed
+  if (!/^[A-Za-z ]+$/.test(cleaned)) return false;
+
+  // avoid all-uppercase short codes like "CBE", "BLR" (reject if <=4 and all uppercase/no space)
+  const noSpace = cleaned.replace(/\s+/g, "");
+  if (noSpace.length <= 4 && /^[A-Z]+$/.test(cleaned)) return false;
+
+  // reject obvious numeric or symbol-containing inputs
+  if (/[0-9]/.test(cleaned)) return false;
+
+  return true;
 };
 
 const parsePassengerLine = (line) => {
@@ -1202,31 +1323,57 @@ app.post("/webhook", async (req, res) => {
     }
 
     // BUS FLOW
+
     if (s.state === "BUS_FROM" && msg.type === "text") {
-      s.pendingBooking.from = msg.text.body.trim();
+      const candidate = msg.text.body.trim();
+      if (!isValidCity(candidate)) {
+        await sendText(from, "I couldn’t understand that city name.\nPlease type the full city name (letters only), e.g., Chennai");
+        return res.sendStatus(200);
+      }
+      s.pendingBooking.from = candidate;
       s.state = "BUS_TO";
       await askBusTo(from);
       return res.sendStatus(200);
     }
 
+    // BUS_TO (validated)
     if (s.state === "BUS_TO" && msg.type === "text") {
-      s.pendingBooking.to = msg.text.body.trim();
+      const candidate = msg.text.body.trim();
+      if (!isValidCity(candidate)) {
+        await sendText(from, "I couldn’t understand that city name.\nPlease type the full city name (letters only), e.g., Hyderabad");
+        return res.sendStatus(200);
+      }
+      s.pendingBooking.to = candidate;
       s.state = "BUS_DATE";
       await askBusDate(from);
       return res.sendStatus(200);
     }
 
-    if (s.state === "BUS_DATE" && msg.type === "text") {
-      const d = msg.text.body.trim();
-      if (!isValidDate(d)) {
-        await sendText(from, "Invalid date. Try again (e.g., 24 Feb 2026 or 2026-02-24)");
-        return res.sendStatus(200);
-      }
-      s.pendingBooking.date = normalizeDate(d);
-      s.state = "BUS_TIME";
-      await askTimePref(from);
-      return res.sendStatus(200);
-    }
+   // BUS_DATE (supports natural language)
+   if (s.state === "BUS_DATE" && msg.type === "text") {
+     const raw = msg.text.body.trim();
+     const parsed = parseDateInput(raw);
+
+     if (!parsed.ok || !isValidDate(raw)) {
+       await sendText(
+         from,
+         "Invalid date ❌\n\nYou can type:\n• 24 Feb 2026\n• 2026-02-24\n• tomorrow\n• day after tomorrow\n• next Monday\n• coming Friday night\n• this weekend\n\nEnsure it’s not past and within 120 days."
+       );
+       return res.sendStatus(200);
+     }
+
+     s.pendingBooking.date = parsed.dateStr;
+
+     // optional: auto time hint
+     if (parsed.timeHint) {
+       s.pendingBooking.timeHint = parsed.timeHint;
+     }
+
+     s.state = "BUS_TIME";
+     await askTimePref(from);
+     return res.sendStatus(200);
+   }
+
 
     if (s.state === "BUS_TIME") {
       if (interactiveType !== "list_reply") {
