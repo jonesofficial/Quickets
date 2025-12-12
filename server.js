@@ -312,9 +312,6 @@ const normalizeDate = (input) => {
 };
 
 
-
-
-// ---------- City validator (add here) ----------
 const isValidCity = (s) => {
   if (!s) return false;
   const cleaned = String(s).trim();
@@ -325,9 +322,9 @@ const isValidCity = (s) => {
   // only letters and spaces allowed
   if (!/^[A-Za-z ]+$/.test(cleaned)) return false;
 
-  // avoid all-uppercase short codes like "CBE", "BLR" (reject if <=4 and all uppercase/no space)
+  // avoid all-uppercase short codes like "CBE", "BLR"
   const noSpace = cleaned.replace(/\s+/g, "");
-  if (noSpace.length <= 4 && /^[A-Z]+$/.test(noSpaceconst)) return false;
+  if (noSpace.length <= 4 && /^[A-Z]+$/.test(noSpace)) return false;
 
   // reject obvious numeric or symbol-containing inputs
   if (/[0-9]/.test(cleaned)) return false;
