@@ -1,9 +1,10 @@
 // routes/webhook.js
 const express = require("express");
 const router = express.Router();
-const route = require("../lib/flows");
 
-// Webhook verification
+// ✅ IMPORT THE ACTUAL FUNCTION
+const route = require("../index"); // ← ROOT index.js
+
 router.get("/", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -15,7 +16,7 @@ router.get("/", (req, res) => {
   return res.sendStatus(403);
 });
 
-// 🔥 Express now receives a real function
+// ✅ PASS FUNCTION, NOT OBJECT
 router.post("/", route);
-console.log("TYPEOF route:", typeof route);
+
 module.exports = router;

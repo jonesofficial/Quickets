@@ -1,19 +1,19 @@
-// lib/flow/index.js
-const { buildContext } = require("./context");
-const { handleLanguage } = require("./languageFlow");
-const { handleMenu } = require("./menuFlow");
-const { handleBooking } = require("./bookingFlow");
-const { handleTracking } = require("./trackingFlow");
-const { handleFallback } = require("./fallbackFlow");
-const { isProcessed, markProcessed } = require("../sessionStore");
+// index.js (ROOT)
+const { buildContext } = require("./lib/flow/context");
+const { handleLanguage } = require("./lib/flow/languageFlow");
+const { handleMenu } = require("./lib/flow/menuFlow");
+const { handleBooking } = require("./lib/flow/bookingFlow");
+const { handleTracking } = require("./lib/flow/trackingFlow");
+const { handleFallback } = require("./lib/flow/feedbackFlow");
+const { isProcessed, markProcessed } = require("./lib/sessionStore");
 
 async function route(req, res) {
   const ctx = buildContext(req);
+
   if (!ctx.msg) return res.sendStatus(200);
 
-  if (isProcessed(ctx.msg.id)) {
-    return res.sendStatus(200);
-  }
+  // ✅ SINGLE dedupe location (ONLY HERE)
+  if (isProcessed(ctx.msg.id)) return res.sendStatus(200);
   markProcessed(ctx.msg.id);
 
   if (await handleLanguage(ctx)) return res.sendStatus(200);
@@ -25,5 +25,5 @@ async function route(req, res) {
   res.sendStatus(200);
 }
 
-// 🔥 THIS LINE IS CRITICAL
+// 🔥 REQUIRED: export the FUNCTION
 module.exports = route;
