@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const route = require("../lib/flow/route");
+const route = require("../lib/flow/index");
 
 // Verify
 router.get("/", (req, res) => {
