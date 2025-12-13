@@ -4,7 +4,6 @@ const { handleLanguage } = require("./lib/flow/languageFlow");
 const { handleMenu } = require("./lib/flow/menuFlow");
 const { handleBooking } = require("./lib/flow/bookingFlow");
 const { handleTracking } = require("./lib/flow/trackingFlow");
-const { handleFallback } = require("./lib/flow/feedbackFlow");
 const { isProcessed, markProcessed } = require("./lib/sessionStore");
 
 async function route(req, res) {
