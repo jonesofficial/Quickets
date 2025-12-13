@@ -1,9 +1,11 @@
 // routes/webhook.js
 const express = require("express");
 const router = express.Router();
-const { handleWebhook } = require("../lib/flowHandler");
+const { route } = require("../lib/flow");
 
-// Webhook verify (GET) — same behavior as original
+// --------------------------------------------------
+// Webhook verification (Meta / WhatsApp)
+// --------------------------------------------------
 router.get("/", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -15,7 +17,9 @@ router.get("/", (req, res) => {
   return res.sendStatus(403);
 });
 
-// POST /webhook -> delegate to flow handler
-router.post("/", (req, res) => handleWebhook(req, res));
+// --------------------------------------------------
+// Incoming messages → modular flow router
+// --------------------------------------------------
+router.post("/", route);
 
 module.exports = router;
