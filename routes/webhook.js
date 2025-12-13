@@ -1,7 +1,7 @@
 // routes/webhook.js
 const express = require("express");
 const router = express.Router();
-const { route } = require("../lib/flow");
+const { route } = require("../lib/flows");
 
 // --------------------------------------------------
 // Webhook verification (Meta / WhatsApp)
