@@ -1,11 +1,9 @@
 // routes/webhook.js
 const express = require("express");
 const router = express.Router();
-const { route } = require("../lib/flows");
+const route = require("../lib/flows");
 
-// --------------------------------------------------
-// Webhook verification (Meta / WhatsApp)
-// --------------------------------------------------
+// Webhook verification
 router.get("/", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -17,9 +15,7 @@ router.get("/", (req, res) => {
   return res.sendStatus(403);
 });
 
-// --------------------------------------------------
-// Incoming messages → modular flow router
-// --------------------------------------------------
+// 🔥 Express now receives a real function
 router.post("/", route);
-
+console.log("TYPEOF route:", typeof route);
 module.exports = router;

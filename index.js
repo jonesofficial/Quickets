@@ -1,15 +1,29 @@
-// index.js
-require("dotenv").config();
-const express = require("express");
-const webhookRouter = require("./routes/webhook");
+// lib/flow/index.js
+const { buildContext } = require("./context");
+const { handleLanguage } = require("./languageFlow");
+const { handleMenu } = require("./menuFlow");
+const { handleBooking } = require("./bookingFlow");
+const { handleTracking } = require("./trackingFlow");
+const { handleFallback } = require("./fallbackFlow");
+const { isProcessed, markProcessed } = require("../sessionStore");
 
-const app = express();
-app.use(express.json());
+async function route(req, res) {
+  const ctx = buildContext(req);
+  if (!ctx.msg) return res.sendStatus(200);
 
-app.use("/webhook", webhookRouter);
+  if (isProcessed(ctx.msg.id)) {
+    return res.sendStatus(200);
+  }
+  markProcessed(ctx.msg.id);
 
-// health endpoint (kept exactly as before)
-app.get("/health", (req, res) => res.status(200).json({ ok: true, ts: Date.now() }));
+  if (await handleLanguage(ctx)) return res.sendStatus(200);
+  if (await handleMenu(ctx)) return res.sendStatus(200);
+  if (await handleBooking(ctx)) return res.sendStatus(200);
+  if (await handleTracking(ctx)) return res.sendStatus(200);
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Quickets bot running on :${PORT}`));
+  await handleFallback(ctx);
+  res.sendStatus(200);
+}
+
+// 🔥 THIS LINE IS CRITICAL
+module.exports = route;
