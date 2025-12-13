@@ -1,28 +1,24 @@
 // index.js (ROOT)
-const { buildContext } = require("./lib/flow/context");
-const { handleLanguage } = require("./lib/flow/languageFlow");
-const { handleMenu } = require("./lib/flow/menuFlow");
-const { handleBooking } = require("./lib/flow/bookingFlow");
-const { handleTracking } = require("./lib/flow/trackingFlow");
-const { isProcessed, markProcessed } = require("./lib/sessionStore");
+const express = require("express");
+require("dotenv").config();
 
-async function route(req, res) {
-  const ctx = buildContext(req);
+const webhookRouter = require("./routes/webhook");
 
-  if (!ctx.msg) return res.sendStatus(200);
+const app = express();
 
-  // ✅ SINGLE dedupe location (ONLY HERE)
-  if (isProcessed(ctx.msg.id)) return res.sendStatus(200);
-  markProcessed(ctx.msg.id);
+// WhatsApp requires raw JSON
+app.use(express.json());
 
-  if (await handleLanguage(ctx)) return res.sendStatus(200);
-  if (await handleMenu(ctx)) return res.sendStatus(200);
-  if (await handleBooking(ctx)) return res.sendStatus(200);
-  if (await handleTracking(ctx)) return res.sendStatus(200);
+// Mount webhook
+app.use("/webhook", webhookRouter);
 
-  await handleFallback(ctx);
-  res.sendStatus(200);
-}
+// Health check (Render likes this)
+app.get("/", (req, res) => {
+  res.send("Quickets WhatsApp Bot is running 🚍");
+});
 
-// 🔥 REQUIRED: export the FUNCTION
-module.exports = route;
+// 🔥 CRITICAL: bind to PORT
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`✅ Server listening on port ${PORT}`);
+});
