@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { razorpayWebhook } = require("../lib/flow/Razorpaypayments");
+const { razorpayWebhook } = require("../lib/payments/Razorpay_payments");
 
 /**
  * Razorpay Webhook
