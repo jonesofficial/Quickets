@@ -32,6 +32,7 @@
 
 // module.exports = router;
 
+// routes/webhook.js
 const express = require("express");
 const router = express.Router();
 const flowHandler = require("../lib/flow");
@@ -52,7 +53,7 @@ router.get("/", (req, res) => {
 });
 
 /* ==============================
- * WhatsApp Message Handler
+ * WhatsApp Message Webhook
  * ============================== */
 router.post("/", async (req, res) => {
   try {
@@ -61,8 +62,10 @@ router.post("/", async (req, res) => {
     console.error("WhatsApp webhook error:", err?.message || err);
   }
 
-  // ⚠️ WhatsApp requires 200 always
-  res.sendStatus(200);
+  // ✅ CRITICAL: send response ONLY ONCE
+  if (!res.headersSent) {
+    res.sendStatus(200);
+  }
 });
 
 module.exports = router;
