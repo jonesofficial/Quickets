@@ -83,7 +83,7 @@
 const express = require("express");
 const app = express();
 
-// ⚠️ Capture RAW body for Razorpay webhook verification
+
 app.use(express.json({
   verify: (req, res, buf) => {
     req.rawBody = buf;
