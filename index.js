@@ -74,7 +74,7 @@ app.get("/test-qr", async (req, res) => {
       key_secret: process.env.RAZORPAY_KEY_SECRET,
     });
 
-    const qr = await razorpay.qrcode.create({
+    const qr = await razorpay.qrCode.create({
       type: "upi_qr",
       name: "Quickets-Test",
       usage: "single_use",
