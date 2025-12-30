@@ -62,6 +62,31 @@ app.use("/webhook", whatsappWebhook);
 const razorpayWebhook = require("./routes/razorpayWebhook");
 app.use("/webhooks/razorpay", razorpayWebhook);
 
+app.get("/test-qr", async (req, res) => {
+  const Razorpay = require("razorpay");
+
+  const razorpay = new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID,
+    key_secret: process.env.RAZORPAY_KEY_SECRET,
+  });
+
+  const qr = await razorpay.qrcode.create({
+    type: "upi_qr",
+    name: "Quickets-Test",
+    usage: "single_use",
+    fixed_amount: true,
+    payment_amount: 100 * 100,
+    description: "QR Test",
+  });
+
+  res.json({
+    id: qr.id,
+    image_url: qr.image_url,
+    status: qr.status,
+  });
+});
+
+
 /* ==============================
  * Health Check
  * ============================== */
