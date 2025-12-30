@@ -66,6 +66,8 @@ app.get("/test-qr", async (req, res) => {
   try {
     console.log("🔑 KEY ID:", process.env.RAZORPAY_KEY_ID?.slice(0, 8));
     console.log("🔑 SECRET EXISTS:", !!process.env.RAZORPAY_KEY_SECRET);
+    console.log("Razorpay keys:", Object.keys(razorpay));
+
 
     const Razorpay = require("razorpay");
 
