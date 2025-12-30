@@ -63,29 +63,43 @@ const razorpayWebhook = require("./routes/razorpayWebhook");
 app.use("/webhooks/razorpay", razorpayWebhook);
 
 app.get("/test-qr", async (req, res) => {
-  const Razorpay = require("razorpay");
+  try {
+    console.log("🔑 KEY ID:", process.env.RAZORPAY_KEY_ID?.slice(0, 8));
+    console.log("🔑 SECRET EXISTS:", !!process.env.RAZORPAY_KEY_SECRET);
 
-  const razorpay = new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID,
-    key_secret: process.env.RAZORPAY_KEY_SECRET,
-  });
+    const Razorpay = require("razorpay");
 
-  const qr = await razorpay.qrcode.create({
-    type: "upi_qr",
-    name: "Quickets-Test",
-    usage: "single_use",
-    fixed_amount: true,
-    payment_amount: 100 * 100,
-    description: "QR Test",
-  });
+    const razorpay = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
+    });
 
-  res.json({
-    id: qr.id,
-    image_url: qr.image_url,
-    status: qr.status,
-  });
+    const qr = await razorpay.qrcode.create({
+      type: "upi_qr",
+      name: "Quickets-Test",
+      usage: "single_use",
+      fixed_amount: true,
+      payment_amount: 100 * 100,
+      description: "QR Test",
+    });
+
+    console.log("✅ QR CREATED:", qr.id);
+
+    res.json({
+      id: qr.id,
+      image_url: qr.image_url,
+      status: qr.status,
+    });
+  } catch (err) {
+    console.error("❌ TEST QR ERROR");
+    console.error(err);
+
+    res.status(500).json({
+      error: err.message,
+      details: err.error || err,
+    });
+  }
 });
-
 
 /* ==============================
  * Health Check
