@@ -1,4 +1,3 @@
-// index.js (ROOT)
 const express = require("express");
 const app = express();
 
@@ -20,7 +19,14 @@ const whatsappWebhook = require("./routes/webhook");
 app.use("/webhook", whatsappWebhook);
 
 /* ==============================
- * Health Check
+ * Health Check (UptimeRobot)
+ * ============================== */
+app.get("/health", (req, res) => {
+  res.status(200).send("OK");
+});
+
+/* ==============================
+ * Root
  * ============================== */
 app.get("/", (req, res) => {
   res.status(200).send("Quickets WhatsApp Bot is running 🚍");
@@ -31,5 +37,6 @@ app.get("/", (req, res) => {
  * ============================== */
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
+  console.log("🚀 Quickets server booted at", new Date().toISOString());
   console.log(`✅ Server listening on port ${PORT}`);
 });
