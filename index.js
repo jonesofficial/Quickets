@@ -3,6 +3,9 @@ require("dotenv").config();
 const express = require("express");
 const app = express();
 
+console.log(process.env.RAPID_API_KEY);
+console.log(process.env.RAPID_API_HOST);
+
 /* ==============================
  * Middleware
  * ============================== */
