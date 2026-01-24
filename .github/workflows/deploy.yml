@@ -10,12 +10,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VM_SSH_KEY_B64 }}" | base64 -d > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
       - name: Deploy to GCP VM
         uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ secrets.VM_HOST }}
-          username: ${{ secrets.VM_USER }}
-          key: ${{ secrets.VM_SSH_KEY }}
+          username: quicketsofficial
+          key_path: ~/.ssh/deploy_key
+          port: 22
           script: |
             cd ~/Quickets
             git pull origin main
