@@ -13,18 +13,22 @@ jobs:
       - name: Prepare SSH key
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.VM_SSH_KEY_B64 }}" | base64 -d > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
+          echo "${{ secrets.VM_SSH_KEY_B64 }}" | base64 -d > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
 
-      - name: Deploy to GCP VM
-        uses: appleboy/ssh-action@v1.0.0
-        with:
-          host: ${{ secrets.VM_HOST }}
-          username: quicketsofficial
-          key_path: ~/.ssh/deploy_key
-          port: 22
-          script: |
-            cd ~/Quickets
-            git pull origin main
-            npm ci --omit=dev || npm install
-            pm2 reload quickets-backend || pm2 restart quickets-backend
+      - name: Test SSH connection
+        run: |
+          ssh -i ~/.ssh/id_ed25519 \
+            -o StrictHostKeyChecking=no \
+            quicketsofficial@${{ secrets.VM_HOST }} "echo SSH_OK"
+
+      - name: Deploy via SSH
+        run: |
+          ssh -i ~/.ssh/id_ed25519 \
+            -o StrictHostKeyChecking=no \
+            quicketsofficial@${{ secrets.VM_HOST }} "
+              cd ~/Quickets &&
+              git pull origin main &&
+              npm ci --omit=dev || npm install &&
+              pm2 reload quickets-backend || pm2 restart quickets-backend
+            "
