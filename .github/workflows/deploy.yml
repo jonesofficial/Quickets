@@ -19,5 +19,5 @@ jobs:
           script: |
             cd ~/Quickets
             git pull origin main
-            npm install
-            pm2 restart quickets-backend
+            npm ci --omit=dev || npm install
+            pm2 reload quickets-backend || pm2 restart quickets-backend
