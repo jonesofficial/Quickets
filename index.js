@@ -84,6 +84,14 @@ const whatsappWebhook = require("./routes/webhook");
 app.use("/webhook", whatsappWebhook);
 
 /* ==============================
+ * GitHub Webhook Deploy (GET check)
+ * ============================== */
+app.get("/deploy", (req, res) => {
+  res.status(200).send("Deploy endpoint is alive");
+});
+
+
+/* ==============================
  * GitHub Webhook Deploy
  * ============================== */
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
