@@ -301,7 +301,7 @@ app.get("/", (req, res) => {
 <body>
 
   <header>
-    <div class="logo">Quick<span>ets</span></div>
+    <div class="logo"><img src=".."</div>
     <div class="status-pill">Bot Live</div>
   </header>
 
