@@ -152,168 +152,210 @@ app.get("/health", (req, res) => {
  * ============================== */
 app.get("/", (req, res) => {
   res.send(`
-  <!DOCTYPE html>
-  <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Quickets Help</title>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quickets – Book Tickets on WhatsApp</title>
 
-    <style>
-      body {
-        margin: 0;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-        background: #000;
-        color: #fff;
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        overflow: hidden;
-      }
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
 
-      /* subtle travel icons in background */
-      .bg-icons {
-        position: absolute;
-        inset: 0;
-        pointer-events: none;
-        opacity: 0.06;
-        font-size: 120px;
-      }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      background: #000;
+      color: #fff;
+    }
 
-      .bg-icons span {
-        position: absolute;
-      }
+    header {
+      padding: 28px 22px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
 
-      .icon-plane { top: 10%; left: 8%; }
-      .icon-bus { bottom: 15%; right: 10%; }
-      .icon-train { top: 20%; right: 15%; }
+    .logo {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+    }
 
-      .container {
-        position: relative;
-        max-width: 420px;
-        width: 90%;
-        background: #000;
-        color: #fff;
-        border-radius: 18px;
-        padding: 30px;
-        box-shadow: 0 25px 60px rgba(0,0,0,0.6);
-      }
+    .logo span {
+      color: #f2cd1c;
+    }
 
-      .brand {
-        text-align: center;
-        font-weight: 800;
-        font-size: 26px;
-        letter-spacing: 0.6px;
-      }
+    .status-pill {
+      background: #f2cd1c;
+      color: #000;
+      padding: 8px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+    }
 
-      .brand span {
-        color: #f2cd1c;
-      }
+    .hero {
+      padding: 70px 22px 60px;
+      text-align: center;
+      max-width: 900px;
+      margin: auto;
+    }
 
-      .tagline {
-        margin-top: 6px;
-        text-align: center;
-        font-size: 14px;
-        opacity: 0.7;
-      }
+    .hero h1 {
+      font-size: 40px;
+      line-height: 1.2;
+      margin-bottom: 18px;
+    }
 
-      .status {
-        margin: 22px 0;
-        padding: 14px;
-        border-radius: 12px;
-        background: #000;
-        color: #f2cd1c;
-        font-weight: 600;
-        text-align: center;
-      }
+    .hero h1 span {
+      color: #f2cd1c;
+    }
 
-      .steps {
-        margin-top: 10px;
-      }
+    .hero p {
+      font-size: 18px;
+      opacity: 0.85;
+      max-width: 600px;
+      margin: auto;
+    }
 
-      .step {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 12px 14px;
-        border-radius: 12px;
-        margin-bottom: 10px;
-        background: #f7f7f7;
-        font-size: 14px;
-      }
+    .travel-icons {
+      margin-top: 28px;
+      font-size: 40px;
+      display: flex;
+      justify-content: center;
+      gap: 28px;
+      opacity: 0.9;
+    }
 
-      .step-icon {
-        font-size: 20px;
-      }
+    .section {
+      background: #fff;
+      color: #000;
+      padding: 60px 22px;
+    }
 
-      .highlight {
-        color: #000;
-        font-weight: 600;
-      }
+    .section-inner {
+      max-width: 900px;
+      margin: auto;
+    }
 
-      .footer {
-        margin-top: 24px;
-        text-align: center;
-        font-size: 12px;
-        opacity: 0.6;
-      }
+    .section h2 {
+      font-size: 28px;
+      margin-bottom: 30px;
+      text-align: center;
+    }
 
-      .accent-line {
-        width: 50px;
-        height: 4px;
-        background: #f2cd1c;
-        border-radius: 10px;
-        margin: 14px auto 0;
-      }
-    </style>
-  </head>
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 18px;
+      margin-top: 30px;
+    }
 
-  <body>
-    <div class="bg-icons">
-      <span class="icon-plane">✈️</span>
-      <span class="icon-bus">🚌</span>
-      <span class="icon-train">🚆</span>
+    .step {
+      background: #f7f7f7;
+      border-radius: 14px;
+      padding: 20px;
+    }
+
+    .step h3 {
+      margin-bottom: 8px;
+      font-size: 16px;
+    }
+
+    .step p {
+      font-size: 14px;
+      opacity: 0.8;
+    }
+
+    .highlight {
+      background: #f2cd1c;
+      color: #000;
+      padding: 60px 22px;
+      text-align: center;
+    }
+
+    .highlight h2 {
+      font-size: 30px;
+      margin-bottom: 12px;
+    }
+
+    .highlight p {
+      font-size: 16px;
+      opacity: 0.9;
+    }
+
+    footer {
+      padding: 26px 22px;
+      text-align: center;
+      font-size: 13px;
+      opacity: 0.6;
+    }
+  </style>
+</head>
+
+<body>
+
+  <header>
+    <div class="logo">Quick<span>ets</span></div>
+    <div class="status-pill">Bot Live</div>
+  </header>
+
+  <section class="hero">
+    <h1>
+      Book Travel Tickets<br />
+      <span>Just by Sending a Message</span>
+    </h1>
+
+    <p>
+      Quickets lets you book Bus, Train, and Flight tickets directly on WhatsApp.
+      No apps. No forms. Just chat.
+    </p>
+
+    <div class="travel-icons">
+      ✈️ 🚌 🚆
     </div>
+  </section>
 
-    <div class="container">
-      <div class="brand">
-        Quickets
-      </div>
-      <div class="tagline">
-        What if booking tickets was just a message?
-      </div>
-
-      <div class="accent-line"></div>
-
-      <div class="status">
-        ✅ WhatsApp Bot is Live
-      </div>
+  <section class="section">
+    <div class="section-inner">
+      <h2>How Quickets Works</h2>
 
       <div class="steps">
         <div class="step">
-          <div class="step-icon">📲</div>
-          <div>Open <span class="highlight">WhatsApp</span></div>
+          <h3>📲 Open WhatsApp</h3>
+          <p>Use the app you already trust and use every day.</p>
         </div>
 
         <div class="step">
-          <div class="step-icon">💬</div>
-          <div>Send <span class="highlight">Hi</span> to Quickets</div>
+          <h3>💬 Say “Hi”</h3>
+          <p>Start a chat with Quickets to begin your booking.</p>
         </div>
 
         <div class="step">
-          <div class="step-icon">🎫</div>
-          <div>Book <span class="highlight">Bus · Train · Flight</span></div>
+          <h3>🎫 Get Your Ticket</h3>
+          <p>Choose, pay, and receive your ticket instantly.</p>
         </div>
-      </div>
-
-      <div class="footer">
-        © 2026 Quickets • Built for instant travel
       </div>
     </div>
-  </body>
-  </html>
-  `);
+  </section>
+
+  <section class="highlight">
+    <h2>WhatsApp-First. Travel-Smart.</h2>
+    <p>Built for speed, simplicity, and real people.</p>
+  </section>
+
+  <footer>
+    © 2026 Quickets • quickets.co.in
+  </footer>
+
+</body>
+</html>
+`);
 });
 
 
