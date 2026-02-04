@@ -65,6 +65,8 @@ const app = express();
 console.log("RAPID_API_KEY:", !!process.env.RAPID_API_KEY);
 console.log("RAPID_API_HOST:", !!process.env.RAPID_API_HOST);
 console.log("WEBHOOK_SECRET loaded:", !!process.env.WEBHOOK_SECRET);
+console.log("ADMIN_NUMBER:", process.env.ADMIN_NUMBER);
+console.log("ADMIN_PHONE:", process.env.ADMIN_PHONE);
 
 /* ==============================
  * Middleware (rawBody needed for GitHub webhook)
