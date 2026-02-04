@@ -158,96 +158,157 @@ app.get("/", (req, res) => {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Quickets Help</title>
+
     <style>
       body {
         margin: 0;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-        background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
-        color: #ffffff;
+        background: #000;
+        color: #fff;
         min-height: 100vh;
         display: flex;
         align-items: center;
         justify-content: center;
+        overflow: hidden;
       }
+
+      /* subtle travel icons in background */
+      .bg-icons {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        opacity: 0.06;
+        font-size: 120px;
+      }
+
+      .bg-icons span {
+        position: absolute;
+      }
+
+      .icon-plane { top: 10%; left: 8%; }
+      .icon-bus { bottom: 15%; right: 10%; }
+      .icon-train { top: 20%; right: 15%; }
 
       .container {
+        position: relative;
         max-width: 420px;
         width: 90%;
-        background: rgba(255, 255, 255, 0.08);
-        backdrop-filter: blur(12px);
-        border-radius: 16px;
-        padding: 28px;
-        box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+        background: #fff;
+        color: #000;
+        border-radius: 18px;
+        padding: 30px;
+        box-shadow: 0 25px 60px rgba(0,0,0,0.6);
       }
 
-      h1 {
-        margin-top: 0;
+      .brand {
+        text-align: center;
+        font-weight: 800;
         font-size: 26px;
-        text-align: center;
+        letter-spacing: 0.6px;
       }
 
-      p {
-        opacity: 0.9;
-        line-height: 1.6;
+      .brand span {
+        color: #f2cd1c;
+      }
+
+      .tagline {
+        margin-top: 6px;
         text-align: center;
+        font-size: 14px;
+        opacity: 0.7;
       }
 
       .status {
-        margin: 20px 0;
-        padding: 12px;
-        border-radius: 10px;
-        background: rgba(0, 255, 150, 0.15);
-        color: #9cffd5;
-        text-align: center;
+        margin: 22px 0;
+        padding: 14px;
+        border-radius: 12px;
+        background: #000;
+        color: #f2cd1c;
         font-weight: 600;
+        text-align: center;
       }
 
       .steps {
-        margin-top: 20px;
+        margin-top: 10px;
       }
 
       .step {
-        background: rgba(255,255,255,0.08);
-        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
         padding: 12px 14px;
+        border-radius: 12px;
         margin-bottom: 10px;
+        background: #f7f7f7;
         font-size: 14px;
+      }
+
+      .step-icon {
+        font-size: 20px;
+      }
+
+      .highlight {
+        color: #000;
+        font-weight: 600;
       }
 
       .footer {
         margin-top: 24px;
         text-align: center;
         font-size: 12px;
-        opacity: 0.7;
+        opacity: 0.6;
       }
 
-      .brand {
-        font-weight: 700;
-        letter-spacing: 0.5px;
+      .accent-line {
+        width: 50px;
+        height: 4px;
+        background: #f2cd1c;
+        border-radius: 10px;
+        margin: 14px auto 0;
       }
     </style>
   </head>
-  <body>
-    <div class="container">
-      <h1>🚀 Quickets WhatsApp Bot</h1>
 
-      <p>
-        Book <strong>Bus</strong>, <strong>Train</strong>, and <strong>Flight</strong> tickets
-        with just a message on WhatsApp.
-      </p>
+  <body>
+    <div class="bg-icons">
+      <span class="icon-plane">✈️</span>
+      <span class="icon-bus">🚌</span>
+      <span class="icon-train">🚆</span>
+    </div>
+
+    <div class="container">
+      <div class="brand">
+        Quick<span>ets</span>
+      </div>
+      <div class="tagline">
+        What if booking tickets was just a message?
+      </div>
+
+      <div class="accent-line"></div>
 
       <div class="status">
-        ✅ Bot is running and healthy
+        ✅ WhatsApp Bot is Live
       </div>
 
       <div class="steps">
-        <div class="step">1️⃣ Open WhatsApp</div>
-        <div class="step">2️⃣ Send <strong>Hi</strong> to Quickets</div>
-        <div class="step">3️⃣ Follow the chat to book tickets</div>
+        <div class="step">
+          <div class="step-icon">📲</div>
+          <div>Open <span class="highlight">WhatsApp</span></div>
+        </div>
+
+        <div class="step">
+          <div class="step-icon">💬</div>
+          <div>Send <span class="highlight">Hi</span> to Quickets</div>
+        </div>
+
+        <div class="step">
+          <div class="step-icon">🎫</div>
+          <div>Book <span class="highlight">Bus · Train · Flight</span></div>
+        </div>
       </div>
 
       <div class="footer">
-        <span class="brand">Quickets</span> • What if booking tickets was just a message?
+        © 2026 Quickets • Built for instant travel
       </div>
     </div>
   </body>
