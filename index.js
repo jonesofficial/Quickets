@@ -193,8 +193,8 @@ app.get("/", (req, res) => {
         position: relative;
         max-width: 420px;
         width: 90%;
-        background: #fff;
-        color: #000;
+        background: #000;
+        color: #fff;
         border-radius: 18px;
         padding: 30px;
         box-shadow: 0 25px 60px rgba(0,0,0,0.6);
@@ -278,7 +278,7 @@ app.get("/", (req, res) => {
 
     <div class="container">
       <div class="brand">
-        Quick<span>ets</span>
+        Quickets
       </div>
       <div class="tagline">
         What if booking tickets was just a message?
