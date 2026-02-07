@@ -56,6 +56,12 @@ router.get("/", (req, res) => {
  * WhatsApp Message Webhook
  * ============================== */
 router.post("/", async (req, res) => {
+  // routes/webhook.js (inside router.post handler, before calling flowHandler)
+  console.log(
+    "📥 WEBHOOK RAW BODY:",
+    JSON.stringify(req.body?.entry?.[0]?.changes?.[0]?.value, null, 2),
+  );
+
   try {
     await flowHandler(req, res);
   } catch (err) {
