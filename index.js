@@ -1,5 +1,5 @@
 /* ==============================
- * ENV SETUP (MUST BE FIRST)
+ * ENV SETUP (MUST BE FIRST))
  * ============================== */
 require("dotenv").config();
 
