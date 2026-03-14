@@ -12,6 +12,8 @@ const { exec } = require("child_process");
 
 const app = express();
 
+app.use("/assets", express.static("assets"));
+
 /* ==============================
  * ENV LOG (debug – safe)
  * ============================== */
